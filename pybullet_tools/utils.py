@@ -3614,8 +3614,8 @@ def waypoints_from_path(path, tolerance=1e-3):
     path = remove_redundant(path, tolerance=tolerance)
     if len(path) < 2:
         return path
-    difference_fn = lambda q2, q1: np.array(q2) - np.array(q1)
-    #difference_fn = get_difference_fn(body, joints) # TODO: account for wrap around or use adjust_path
+    def difference_fn(q2, q1): return np.array(q2) - np.array(q1)
+    # difference_fn = get_difference_fn(body, joints) # TODO: account for wrap around or use adjust_path
 
     waypoints = [path[0]]
     last_conf = path[1]
@@ -3692,9 +3692,9 @@ def get_collision_fn(body, joints, obstacles=[], attachments=[], self_collisions
     moving_links = frozenset(link for link in get_moving_links(body, joints)
                              if can_collide(body, link)) # TODO: propagate elsewhere
     attached_bodies = [attachment.child for attachment in attachments]
-    moving_bodies = [CollisionPair(body, moving_links)] + list(map(parse_body, attached_bodies))
+    #moving_bodies = [CollisionPair(body, moving_links)] + list(map(parse_body, attached_bodies))
     #moving_bodies = list(flatten(flatten_links(*pair) for pair in moving_bodies)) # Introduces overhead
-    #moving_bodies = [body] + [attachment.child for attachment in attachments]
+    moving_bodies = [body] + [attachment.child for attachment in attachments]
     get_obstacle_aabb = cached_fn(get_buffered_aabb, cache=cache, max_distance=max_distance/2., **kwargs)
     limits_fn = get_limits_fn(body, joints, custom_limits=custom_limits)
     # TODO: sort bodies by bounding box size
@@ -3719,16 +3719,16 @@ def get_collision_fn(body, joints, obstacles=[], attachments=[], self_collisions
 
         # #step_simulation()
         # #update_scene()
-        # for body1 in moving_bodies:
-        #     overlapping_pairs = [(body2, link2) for body2, link2 in get_bodies_in_region(get_moving_aabb(body1))
-        #                          if body2 in obstacles]
-        #     overlapping_bodies = {body2 for body2, _ in overlapping_pairs}
-        #     for body2 in overlapping_bodies:
-        #         if pairwise_collision(body1, body2, **kwargs):
-        #             #print(get_body_name(body1), get_body_name(body2))
-        #             if verbose: print(body1, body2)
-        #             return True
-        # return False
+        for body1 in moving_bodies:
+            overlapping_pairs = [(body2, link2) for body2, link2 in get_bodies_in_region(get_moving_aabb(body1))
+                                 if body2 in obstacles]
+            overlapping_bodies = {body2 for body2, _ in overlapping_pairs}
+            for body2 in overlapping_bodies:
+                if pairwise_collision(body1, body2, **kwargs):
+                    #print(get_body_name(body1), get_body_name(body2))
+                    if verbose: print(body1, body2)
+                    return True
+        return False
 
         for body1, body2 in product(moving_bodies, obstacles):
             if (not use_aabb or aabb_overlap(get_moving_aabb(body1), get_obstacle_aabb(body2))) \
@@ -3785,7 +3785,8 @@ def check_initial_end(start_conf, end_conf, collision_fn, verbose=True):
 def plan_joint_motion(body, joints, end_conf, obstacles=[], attachments=[],
                       self_collisions=True, disabled_collisions=set(),
                       weights=None, resolutions=None, max_distance=MAX_DISTANCE,
-                      use_aabb=False, cache=True, custom_limits={}, algorithm=None, **kwargs):
+                      use_aabb=False, cache=True, custom_limits={}, algorithm=None,
+                      file_name=None, **kwargs):
 
     assert len(joints) == len(end_conf)
     if (weights is None) and (resolutions is not None):
@@ -3799,10 +3800,19 @@ def plan_joint_motion(body, joints, end_conf, obstacles=[], attachments=[],
 
     start_conf = get_joint_positions(body, joints)
     if not check_initial_end(start_conf, end_conf, collision_fn):
+        if file_name is not None:
+
+            f = open(file_name, "a")
+            f.write("check_initial_end returned None\n")
+            f.close()
         return None
 
     if algorithm is None:
         return birrt(start_conf, end_conf, distance_fn, sample_fn, extend_fn, collision_fn, **kwargs)
+    if file_name is not None:
+        f = open(file_name, "a")
+        f.write("going through solve()\n")
+        f.close()
     return solve(start_conf, end_conf, distance_fn, sample_fn, extend_fn, collision_fn, algorithm=algorithm, **kwargs)
     #return plan_lazy_prm(start_conf, end_conf, sample_fn, extend_fn, collision_fn)
 
